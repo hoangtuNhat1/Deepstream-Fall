@@ -1,3 +1,7 @@
+networks:
+  ai_bridge_network:
+    external: true 
+    
 services:
   deepstream:
     image: nvcr.io/nvidia/deepstream:7.0-triton-multiarch
@@ -11,7 +15,8 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /dev/dri:/dev/dri
       - /run/user/1000:/run/user/1000
-      - ./FallDetection:/workspace/FallDetection
-    network_mode: host
+      - ./.:/workspace/FallDetection
+    networks:
+      - ai_bridge_network
     ipc: host
     command: tail -f /dev/null
