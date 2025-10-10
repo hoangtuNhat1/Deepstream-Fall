@@ -17,6 +17,8 @@ from utils.bus_call import bus_call
 from utils.FPS import PERF_DATA
 import time
 from ctypes import sizeof, c_float
+from kafka import KafkaProducer
+
 
 MAX_DISPLAY_LEN = 64
 MUXER_BATCH_TIMEOUT_USEC = 40000
@@ -45,6 +47,20 @@ skeleton = [[16, 14], [14, 12], [17, 15], [15, 13], [12, 13], [6, 12], [7, 13], 
 
 start_time = time.time()
 fps_streams = {}
+
+producer = KafkaProducer(
+    bootstrap_servers=['kafka:9092'],
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+)
+TOPIC_NAME = 'fall_detection'
+
+
+def send_to_kafka(payload):
+    try:
+        producer.send(TOPIC_NAME, payload)
+        producer.flush()
+    except Exception as e:
+        logger.error(f"Failed to send message to Kafka: {e}")
 
 
 class GETFPS:
@@ -170,8 +186,8 @@ class DSL_Pipeline:
         if not self.osd:
             raise RuntimeError("Unable to create nvdsosd")
         self.pipeline.add(self.osd)
-        self.sink = Gst.ElementFactory.make("fakesink", f"fakesink")
-        # self.sink = Gst.ElementFactory.make('nveglglessink', 'nveglglessink')
+        # self.sink = Gst.ElementFactory.make("fakesink", f"fakesink")
+        self.sink = Gst.ElementFactory.make('nveglglessink', 'nveglglessink')
         if not self.sink:
             raise RuntimeError(f"Unable to create sink")
         self.pipeline.add(self.sink)
@@ -240,7 +256,6 @@ class DSL_Pipeline:
             pass
         self.pipeline.set_state(Gst.State.NULL)
 
-
     def tracker_src_pad_buffer_probe(self, pad, info, user_data):
         buf = info.get_buffer()
         batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(buf))
@@ -303,73 +318,68 @@ class DSL_Pipeline:
         obj_meta.text_params.text_bg_clr.blue = 1.0
         obj_meta.text_params.text_bg_clr.alpha = 1.0
 
-    def parse_pose_from_meta(self, frame_meta, obj_meta):
-        num_joints = int(obj_meta.mask_params.size / (sizeof(c_float) * 3))
+    def tracker_src_pad_buffer_probe(self, pad, info, user_data):
+        buf = info.get_buffer()
+        batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(buf))
 
-        gain = min(obj_meta.mask_params.width / STREAMMUX_WIDTH,
-                obj_meta.mask_params.height / STREAMMUX_HEIGHT)
-        pad_x = (obj_meta.mask_params.width - STREAMMUX_WIDTH * gain) / 2.0
-        pad_y = (obj_meta.mask_params.height - STREAMMUX_HEIGHT * gain) / 2.0
+        l_frame = batch_meta.frame_meta_list
+        while l_frame:
+            try:
+                frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
+            except StopIteration:
+                break
 
-        batch_meta = frame_meta.base_meta.batch_meta
-        display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-        pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+            current_index = frame_meta.source_id
+            cam_info = extra_informations[current_index]  # info input (path, recordingId,...)
 
-        for i in range(num_joints):
-            data = obj_meta.mask_params.get_mask_array()
-            xc = int((data[i * 3 + 0] - pad_x) / gain)
-            yc = int((data[i * 3 + 1] - pad_y) / gain)
-            confidence = data[i * 3 + 2]
+            # Lấy thời gian bắt đầu và kết thúc xử lý frame
+            start_time_frame = datetime.now(timezone.utc).isoformat()
 
-            if confidence < 0.5:
-                continue
+            l_obj = frame_meta.obj_meta_list
+            while l_obj:
+                try:
+                    obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
+                except StopIteration:
+                    break
 
-            if display_meta.num_circles == MAX_ELEMENTS_IN_DISPLAY_META:
-                display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-                pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+                # Lấy thông tin pose/keypoints
+                num_joints = int(obj_meta.mask_params.size / (sizeof(c_float) * 3))
+                keypoints = []
+                data = obj_meta.mask_params.get_mask_array()
+                for i in range(num_joints):
+                    x = float(data[i * 3 + 0])
+                    y = float(data[i * 3 + 1])
+                    conf = float(data[i * 3 + 2])
+                    keypoints.append([x, y, conf])
 
-            circle_params = display_meta.circle_params[display_meta.num_circles]
-            circle_params.xc = xc
-            circle_params.yc = yc
-            circle_params.radius = 6
-            circle_params.circle_color.red = 1.0
-            circle_params.circle_color.green = 1.0
-            circle_params.circle_color.blue = 1.0
-            circle_params.circle_color.alpha = 1.0
-            circle_params.has_bg_color = 1
-            circle_params.bg_color.red = 0.0
-            circle_params.bg_color.green = 0.0
-            circle_params.bg_color.blue = 1.0
-            circle_params.bg_color.alpha = 1.0
-            display_meta.num_circles += 1
+                # Payload để gửi Kafka
+                payload = {
+                    "recordingId": cam_info.get("recordingId", ""),
+                    "cameraCode": cam_info.get("cameraCode", ""),
+                    "path": cam_info.get("path", ""),
+                    "startTime": start_time_frame,
+                    "endTime": datetime.now(timezone.utc).isoformat(),
+                    "detection": obj_meta.class_id,
+                    "track_id": obj_meta.object_id,
+                    "confidence": float(obj_meta.confidence),
+                    "keypoints": keypoints
+                }
+                print(payload)
+                send_to_kafka(payload)
 
-        for i in range(num_joints + 2):
-            data = obj_meta.mask_params.get_mask_array()
-            x1 = int((data[(skeleton[i][0] - 1) * 3 + 0] - pad_x) / gain)
-            y1 = int((data[(skeleton[i][0] - 1) * 3 + 1] - pad_y) / gain)
-            confidence1 = data[(skeleton[i][0] - 1) * 3 + 2]
-            x2 = int((data[(skeleton[i][1] - 1) * 3 + 0] - pad_x) / gain)
-            y2 = int((data[(skeleton[i][1] - 1) * 3 + 1] - pad_y) / gain)
-            confidence2 = data[(skeleton[i][1] - 1) * 3 + 2]
+                try:
+                    l_obj = l_obj.next
+                except StopIteration:
+                    break
 
-            if confidence1 < 0.5 or confidence2 < 0.5:
-                continue
+            fps_streams['stream{0}'.format(current_index)].get_fps()
 
-            if display_meta.num_lines == MAX_ELEMENTS_IN_DISPLAY_META:
-                display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
-                pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+            try:
+                l_frame = l_frame.next
+            except StopIteration:
+                break
 
-            line_params = display_meta.line_params[display_meta.num_lines]
-            line_params.x1 = x1
-            line_params.y1 = y1
-            line_params.x2 = x2
-            line_params.y2 = y2
-            line_params.line_width = 6
-            line_params.line_color.red = 0.0
-            line_params.line_color.green = 0.0
-            line_params.line_color.blue = 1.0
-            line_params.line_color.alpha = 1.0
-            display_meta.num_lines += 1
+        return Gst.PadProbeReturn.OK
 
     def create_source_bin(self, index, uri):
         # Create a source GstBin to abstract this bin's content from the rest of the

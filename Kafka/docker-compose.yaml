@@ -1,10 +1,15 @@
 version: '3.9'
 
+networks:
+  ai_bridge_network:
+    external: true   # Vì bạn đã tạo network này bằng tay
+
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.1
     container_name: zookeeper
-    network_mode: host
+    networks:
+      - ai_bridge_network
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -12,11 +17,15 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.4.1
     container_name: kafka
-    network_mode: host
     depends_on:
       - zookeeper
+    networks:
+      - ai_bridge_network
+    ports:
+      - "9092:9092"  # Cho phép truy cập từ host (nếu cần)
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: localhost:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
