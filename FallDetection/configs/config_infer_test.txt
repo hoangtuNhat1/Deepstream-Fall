@@ -1,0 +1,25 @@
+infer_config {
+  unique_id: 1
+  gpu_ids: [0]
+  max_batch_size: 16
+  backend {
+    inputs: [
+      {
+        name: "images"
+      }
+    ]
+    outputs: [
+      {
+        name: "output0"
+      }
+    ]
+    triton {
+      model_name: "sleep_yolo"
+      version: -1
+      grpc {
+        url: "triton:8001"
+        enable_cuda_buffer_sharing: true
+      }
+    }
+  }
+}

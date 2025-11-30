@@ -21,21 +21,17 @@ from kafka import KafkaProducer
 
 
 MAX_DISPLAY_LEN = 64
-MUXER_BATCH_TIMEOUT_USEC = 40000
 TILED_OUTPUT_WIDTH = 1920
 TILED_OUTPUT_HEIGHT = 1080
 OSD_PROCESS_MODE = 0
 OSD_DISPLAY_TEXT = 1
 fps_log_interval = 10000
 
-MAX_ELEMENTS_IN_DISPLAY_META = 16
 
-CONFIG_INFER = '/workspace/FallDetection/config_infer_primary_yoloV8_pose.txt'
-STREAMMUX_BATCH_SIZE = 1
+CONFIG_INFER = '/workspace/FallDetection/configs/config_infer_test.txt'
 STREAMMUX_WIDTH = 1920
 STREAMMUX_HEIGHT = 1080
 GPU_ID = 0
-PERF_MEASUREMENT_INTERVAL_SEC = 5
 
 frame_interval = int(os.getenv("FRAME_PROCESS_INTERVAL", default=1))
 is_file_sink = int(os.getenv("FILE_SINK", default=0))
@@ -52,44 +48,16 @@ producer = KafkaProducer(
     bootstrap_servers=['kafka:9092'],
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
-TOPIC_NAME = 'fall_detection'
+TOPIC_NAME = 'inference-output'
 
 
 def send_to_kafka(payload):
     try:
-        producer.send(TOPIC_NAME, payload)
+        cam_key = str(payload.get("cameraCode", "unknown")).encode("utf-8")
+        producer.send(TOPIC_NAME, key=cam_key, value=payload)
         producer.flush()
     except Exception as e:
         logger.error(f"Failed to send message to Kafka: {e}")
-
-
-class GETFPS:
-    def __init__(self, stream_id):
-        global start_time
-        self.start_time = start_time
-        self.is_first = True
-        self.frame_count = 0
-        self.stream_id = stream_id
-        self.total_fps_time = 0
-        self.total_frame_count = 0
-
-    def get_fps(self):
-        end_time = time.time()
-        if self.is_first:
-            self.start_time = end_time
-            self.is_first = False
-        current_time = end_time - self.start_time
-        if current_time > PERF_MEASUREMENT_INTERVAL_SEC:
-            self.total_fps_time = self.total_fps_time + current_time
-            self.total_frame_count = self.total_frame_count + self.frame_count
-            current_fps = float(self.frame_count) / current_time
-            avg_fps = float(self.total_frame_count) / self.total_fps_time
-            sys.stdout.write('DEBUG: FPS of stream %d: %.2f (%.2f)\n' % (self.stream_id + 1, current_fps, avg_fps))
-            self.start_time = end_time
-            self.frame_count = 0
-        else:
-            self.frame_count = self.frame_count + 1
-
 
 def cb_newpad(decodebin, decoder_src_pad, data):
     caps = decoder_src_pad.get_current_caps()
@@ -170,14 +138,14 @@ class DSL_Pipeline:
             if not srcpad:
                 raise RuntimeError(f"Unable to create src pad for source {i}")
             srcpad.link(sinkpad)
-        self.pgie = Gst.ElementFactory.make('nvinfer', 'pgie')
+        self.pgie = Gst.ElementFactory.make('nvinferserver', 'pgie')
         if not self.pgie:
             raise RuntimeError("Unable to create nvinfer")
         self.pipeline.add(self.pgie)
-        self.tracker = Gst.ElementFactory.make('nvtracker', 'nvtracker')
-        if not self.tracker:
-            raise RuntimeError("Unable to create nvtracker")
-        self.pipeline.add(self.tracker)
+        # self.tracker = Gst.ElementFactory.make('nvtracker', 'nvtracker')
+        # if not self.tracker:
+        #     raise RuntimeError("Unable to create nvtracker")
+        # self.pipeline.add(self.tracker)
         self.converter = Gst.ElementFactory.make('nvvideoconvert', 'nvvideoconvert')
         if not self.converter:
             raise RuntimeError("Unable to create nvvideoconvert")
@@ -186,11 +154,12 @@ class DSL_Pipeline:
         if not self.osd:
             raise RuntimeError("Unable to create nvdsosd")
         self.pipeline.add(self.osd)
-        # self.sink = Gst.ElementFactory.make("fakesink", f"fakesink")
-        self.sink = Gst.ElementFactory.make('nveglglessink', 'nveglglessink')
+        self.sink = Gst.ElementFactory.make("fakesink", f"fakesink")
+        # self.sink = Gst.ElementFactory.make('nveglglessink', 'nveglglessink')
         if not self.sink:
             raise RuntimeError(f"Unable to create sink")
         self.pipeline.add(self.sink)
+    
     def set_property(self, number_sources) : 
         self.streammux.set_property('width', STREAMMUX_WIDTH)
         self.streammux.set_property('height', STREAMMUX_HEIGHT)
@@ -199,37 +168,37 @@ class DSL_Pipeline:
         self.pgie.set_property('config-file-path', CONFIG_INFER)
         # self.pgie.set_property('interval', frame_interval)
         self.pgie.set_property("batch-size", number_sources)
-        self.tracker.set_property('tracker-width', 640)
-        self.tracker.set_property('tracker-height', 384)
-        self.tracker.set_property('ll-lib-file', '/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so')
-        self.tracker.set_property('ll-config-file',
-                            '/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_perf.yml')
-        self.tracker.set_property('display-tracking-id', 1)
-        self.tracker.set_property('qos', 0)
+        # self.tracker.set_property('tracker-width', 640)
+        # self.tracker.set_property('tracker-height', 384)
+        # self.tracker.set_property('ll-lib-file', '/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so')
+        # self.tracker.set_property('ll-config-file',
+        #                     '/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_perf.yml')
+        # self.tracker.set_property('display-tracking-id', 1)
+        # self.tracker.set_property('qos', 0)
         self.osd.set_property('process-mode', OSD_PROCESS_MODE)
         self.osd.set_property('display-text', OSD_DISPLAY_TEXT)
         self.sink.set_property('enable-last-sample', 0)
         self.sink.set_property('sync', 0)
         self.sink.set_property("qos", 0)
 
-        if self.tracker.find_property('enable_batch_process') is not None:
-            self.tracker.set_property('enable_batch_process', 1)
+        # if self.tracker.find_property('enable_batch_process') is not None:
+        #     self.tracker.set_property('enable_batch_process', 1)
         
-        if self.tracker.find_property('enable_past_frame') is not None:
-            self.tracker.set_property('enable_past_frame', 1)
+        # if self.tracker.find_property('enable_past_frame') is not None:
+        #     self.tracker.set_property('enable_past_frame', 1)
         
         self.streammux.set_property('nvbuf-memory-type', 0)
         self.streammux.set_property('gpu_id', GPU_ID)
-        self.pgie.set_property('gpu_id', GPU_ID)
-        self.tracker.set_property('gpu_id', GPU_ID)
+        # self.pgie.set_property('gpu_id', GPU_ID)
+        # self.tracker.set_property('gpu_id', GPU_ID)
         self.converter.set_property('nvbuf-memory-type', 0)
         self.converter.set_property('gpu_id', GPU_ID)
         self.osd.set_property('gpu_id', GPU_ID)
 
     def link_elements(self):
         self.streammux.link(self.pgie)
-        self.pgie.link(self.tracker)
-        self.tracker.link(self.converter)
+        # self.pgie.link(self.tracker)
+        self.pgie.link(self.converter)
         self.converter.link(self.osd)
         self.osd.link(self.sink)
 
@@ -243,55 +212,20 @@ class DSL_Pipeline:
         bus = self.pipeline.get_bus()
         bus.add_signal_watch()
         bus.connect("message", bus_call, loop)
-        tracker_src_pad = self.tracker.get_static_pad('src')
-        if not tracker_src_pad:
-             raise RuntimeError('ERROR: Failed to get tracker src pad')
-        else:
-            tracker_src_pad.add_probe(Gst.PadProbeType.BUFFER, self.tracker_src_pad_buffer_probe, 0)
-       
+        # tracker_src_pad = self.tracker.get_static_pad('src')
+        # if not tracker_src_pad:
+        #      raise RuntimeError('ERROR: Failed to get tracker src pad')
+        # else:
+        #     tracker_src_pad.add_probe(Gst.PadProbeType.BUFFER, self.tracker_src_pad_buffer_probe, 0)
+        self.timeout_id = GLib.timeout_add(fps_log_interval,
+                                                      getattr(self, f"perf_data").perf_print_callback)
         self.pipeline.set_state(Gst.State.PLAYING)
         try:
             loop.run()
         except:
             pass
+        GLib.source_remove(getattr(self, f"timeout_id"))
         self.pipeline.set_state(Gst.State.NULL)
-
-    def tracker_src_pad_buffer_probe(self, pad, info, user_data):
-        buf = info.get_buffer()
-        batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(buf))
-
-        l_frame = batch_meta.frame_meta_list
-        while l_frame:
-            try:
-                frame_meta = pyds.NvDsFrameMeta.cast(l_frame.data)
-            except StopIteration:
-                break
-
-            current_index = frame_meta.source_id
-
-            l_obj = frame_meta.obj_meta_list
-            while l_obj:
-                try:
-                    obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
-                except StopIteration:
-                    break
-                data = obj_meta.mask_params.get_mask_array()
-                self.parse_pose_from_meta(frame_meta, obj_meta)
-                self.set_custom_bbox(obj_meta)
-
-                try:
-                    l_obj = l_obj.next
-                except StopIteration:
-                    break
-
-            fps_streams['stream{0}'.format(current_index)].get_fps()
-
-            try:
-                l_frame = l_frame.next
-            except StopIteration:
-                break
-
-        return Gst.PadProbeReturn.OK
 
     def set_custom_bbox(self, obj_meta):
         border_width = 6
@@ -318,6 +252,74 @@ class DSL_Pipeline:
         obj_meta.text_params.text_bg_clr.blue = 1.0
         obj_meta.text_params.text_bg_clr.alpha = 1.0
 
+    def parse_pose_from_meta(self, batch_meta, frame_meta, obj_meta):
+        display_meta = None
+
+        num_joints = int(obj_meta.mask_params.size / (sizeof(c_float) * 3))
+
+        gain = min(obj_meta.mask_params.width / STREAMMUX_WIDTH, obj_meta.mask_params.height / STREAMMUX_HEIGHT)
+
+        pad_x = (obj_meta.mask_params.width - STREAMMUX_WIDTH * gain) * 0.5
+        pad_y = (obj_meta.mask_params.height - STREAMMUX_HEIGHT * gain) * 0.5
+
+        for i in range(num_joints):
+            data = obj_meta.mask_params.get_mask_array()
+
+            xc = (data[i * 3 + 0] - pad_x) / gain
+            yc = (data[i * 3 + 1] - pad_y) / gain
+            confidence = data[i * 3 + 2]
+
+            if confidence < 0.5:
+                continue
+
+            if display_meta is None or display_meta.num_circles == MAX_ELEMENTS_IN_DISPLAY_META:
+                display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+                pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+
+            circle_params = display_meta.circle_params[display_meta.num_circles]
+            circle_params.xc = int(min(STREAMMUX_WIDTH - 1, max(0, xc)))
+            circle_params.yc = int(min(STREAMMUX_HEIGHT - 1, max(0, yc)))
+            circle_params.radius = 6
+            circle_params.circle_color.red = 1.0
+            circle_params.circle_color.green = 1.0
+            circle_params.circle_color.blue = 1.0
+            circle_params.circle_color.alpha = 1.0
+            circle_params.has_bg_color = 1
+            circle_params.bg_color.red = 0.0
+            circle_params.bg_color.green = 0.0
+            circle_params.bg_color.blue = 1.0
+            circle_params.bg_color.alpha = 1.0
+            display_meta.num_circles += 1
+
+        for i in range(num_joints + 2):
+            data = obj_meta.mask_params.get_mask_array()
+
+            x1 = (data[(skeleton[i][0] - 1) * 3 + 0] - pad_x) / gain
+            y1 = (data[(skeleton[i][0] - 1) * 3 + 1] - pad_y) / gain
+            confidence1 = data[(skeleton[i][0] - 1) * 3 + 2]
+            x2 = (data[(skeleton[i][1] - 1) * 3 + 0] - pad_x) / gain
+            y2 = (data[(skeleton[i][1] - 1) * 3 + 1] - pad_y) / gain
+            confidence2 = data[(skeleton[i][1] - 1) * 3 + 2]
+
+            if confidence1 < 0.5 or confidence2 < 0.5:
+                continue
+
+            if display_meta is None or display_meta.num_lines == MAX_ELEMENTS_IN_DISPLAY_META:
+                display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+                pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+
+            line_params = display_meta.line_params[display_meta.num_lines]
+            line_params.x1 = int(min(STREAMMUX_WIDTH - 1, max(0, x1)))
+            line_params.y1 = int(min(STREAMMUX_HEIGHT - 1, max(0, y1)))
+            line_params.x2 = int(min(STREAMMUX_WIDTH - 1, max(0, x2)))
+            line_params.y2 = int(min(STREAMMUX_HEIGHT - 1, max(0, y2)))
+            line_params.line_width = 6
+            line_params.line_color.red = 0.0
+            line_params.line_color.green = 0.0
+            line_params.line_color.blue = 1.0
+            line_params.line_color.alpha = 1.0
+            display_meta.num_lines += 1
+
     def tracker_src_pad_buffer_probe(self, pad, info, user_data):
         buf = info.get_buffer()
         batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(buf))
@@ -342,6 +344,9 @@ class DSL_Pipeline:
                 except StopIteration:
                     break
 
+                # self.parse_pose_from_meta(batch_meta, frame_meta, obj_meta)
+                # self.set_custom_bbox(obj_meta)
+
                 # Lấy thông tin pose/keypoints
                 num_joints = int(obj_meta.mask_params.size / (sizeof(c_float) * 3))
                 keypoints = []
@@ -354,25 +359,32 @@ class DSL_Pipeline:
 
                 # Payload để gửi Kafka
                 payload = {
-                    "recordingId": cam_info.get("recordingId", ""),
-                    "cameraCode": cam_info.get("cameraCode", ""),
+                    "cameraCode": cam_info.get("meta", {}).get("cam_id", ""),
                     "path": cam_info.get("path", ""),
                     "startTime": start_time_frame,
                     "endTime": datetime.now(timezone.utc).isoformat(),
+                    "frame_num": int(frame_meta.frame_num),
                     "detection": obj_meta.class_id,
                     "track_id": obj_meta.object_id,
                     "confidence": float(obj_meta.confidence),
+                    "bbox": {  # Thêm thông tin bounding box
+                                    "x": float(obj_meta.rect_params.left),
+                                    "y": float(obj_meta.rect_params.top),
+                                    "w": float(obj_meta.rect_params.width),
+                                    "h": float(obj_meta.rect_params.height)
+                                },
                     "keypoints": keypoints
                 }
-                print(payload)
                 send_to_kafka(payload)
-
+                stream_index = "stream{0}".format(frame_meta.pad_index)
+                perf_data = getattr(self, f"perf_data")
+                perf_data.update_fps(stream_index)
                 try:
                     l_obj = l_obj.next
                 except StopIteration:
                     break
 
-            fps_streams['stream{0}'.format(current_index)].get_fps()
+            # fps_streams['stream{0}'.format(current_index)].get_fps()
 
             try:
                 l_frame = l_frame.next
@@ -414,5 +426,5 @@ class DSL_Pipeline:
         if not bin_pad:
             sys.stderr.write(" Failed to add ghost pad in source bin \n")
             return None
-        fps_streams['stream{0}'.format(index)] = GETFPS(index)
+        # fps_streams['stream{0}'.format(index)] = GETFPS(index)
         return nbin

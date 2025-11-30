@@ -1,0 +1,22 @@
+networks:
+  ai_bridge_network:
+    external: true 
+    
+services:
+  cloud_app:
+    image: cloud_app
+    gpus: all
+    environment:
+      - DISPLAY=${DISPLAY}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - XDG_RUNTIME_DIR=/tmp/runtime-root
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /dev/dri:/dev/dri
+      - /run/user/1000:/run/user/1000
+      - ./.:/workspace/cloud_app
+    networks:
+      - ai_bridge_network
+    ipc: host
+    command: tail -f /dev/null

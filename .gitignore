@@ -1,1 +1,5 @@
 deepstream-triton
+DeepStream-Yolo-Pose
+*.engine
+*.whl
+*.pt

@@ -1,0 +1,26 @@
+networks:
+  ai_bridge_network:
+    external: true 
+    
+services:
+  triton:
+    container_name: triton
+    image: nvcr.io/nvidia/tritonserver:24.09-py3
+    gpus: all
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ./models:/models
+    ports:
+      - "8000:8000"   # HTTP
+      - "8001:8001"   # gRPC
+      - "8002:8002"   # Metrics
+    networks:
+      - ai_bridge_network
+    ipc: host
+    command: >
+      tritonserver
+      --model-repository=/models
+      --strict-model-config=false
+      --log-verbose=1

@@ -1,0 +1,36 @@
+# ==== BASE IMAGE ====
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+# ==== SYSTEM SETUP ====
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3.10-distutils \
+    python3.10-dev \
+    python3-pip \
+    wget git curl vim \
+    && rm -rf /var/lib/apt/lists/*
+
+# ==== SET PYTHON 3.10 AS DEFAULT ====
+RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
+    ln -sf /usr/bin/pip3 /usr/bin/pip
+
+# ==== PYTORCH GPU INSTALL ====
+# (Phiên bản này tương thích CUDA 12.1 — dùng command chính thức từ PyTorch)
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# ==== OPTIONAL: CÁC THƯ VIỆN HAY DÙNG ====
+RUN pip install --no-cache-dir \
+    numpy opencv-python pillow tqdm \
+    matplotlib pandas seaborn \
+    fastapi uvicorn kafka-python loguru
+
+# ==== SETUP WORKDIR ====
+WORKDIR /workspace
+
+# Copy project code
+COPY . /workspace
+
+# ==== DEFAULT COMMAND ====
+CMD ["python", "--version"]
