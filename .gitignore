@@ -1,1 +1,17 @@
 deepstream-triton
+DeepStream-Yolo-Pose
+*.engine
+*.whl
+*.pt
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env/
+.venv/
+*.env
+.vscode/
+.idea/
+*.log
+.DS_Store
+Thumbs.db
