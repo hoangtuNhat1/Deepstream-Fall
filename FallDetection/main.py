@@ -41,8 +41,8 @@ for msg in consumer:
 
     pipeline = DSL_Pipeline(input_srcs=input_data.get_src())
 
-    if input_data.get_size() == 1:
+    if input_data.get_size() == 4:
         pipeline.run_pipeline(input_data)
 
     # Reset input_data sau khi chạy xong 1 video
-    input_data = InputData()
+        input_data = InputData()

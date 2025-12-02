@@ -13,19 +13,34 @@ def mock_produce_messages():
     # Tạo vài mock messages (5 camera)
     mock_messages = [
         {
-            "path": f"/workspace/FallDetection/fall-stand.mp4",
+            "path": f"/workspace/FallDetection/streams/yawn.mp4",
             "meta": {
                 "cam_id": f"cam_1",  # thêm cam_id vào metadata
                 "timestamp": time.time()
             }
+            
         },
-        # {
-        #     "path": f"/workspace/FallDetection/facebook.mp4",
-        #     "meta": {
-        #         "cam_id": f"cam_2",  # thêm cam_id vào metadata
-        #         "timestamp": time.time()
-        #     }
-        # }
+        {
+            "path": f"/workspace/FallDetection/streams/yawn2.mp4",
+            "meta": {
+                "cam_id": f"cam_2",  # thêm cam_id vào metadata
+                "timestamp": time.time()
+            }
+        },
+        {
+            "path": f"/workspace/FallDetection/streams/yawn.mp4",
+            "meta": {
+                "cam_id": f"cam_2",  # thêm cam_id vào metadata
+                "timestamp": time.time()
+            }
+        },
+        {
+            "path": f"/workspace/FallDetection/streams/yawn2.mp4",
+            "meta": {
+                "cam_id": f"cam_2",  # thêm cam_id vào metadata
+                "timestamp": time.time()
+            }
+        },
     ]
 
     # Gửi từng message
