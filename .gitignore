@@ -1,5 +1,11 @@
 deepstream-triton
 DeepStream-Yolo-Pose
+DeepStream-Yolo
+nvdsinfer_custom_impl_Yolo_pose
+nvdsinfer_custom_impl_Yolo
+ultralytics
+*.mp4
+*.onnx
 *.engine
 *.whl
 *.pt
