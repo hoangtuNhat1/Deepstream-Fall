@@ -1,6 +1,0 @@
-look_away
-natural
-phone
-rub_eye
-sleepy_eye
-yawn
