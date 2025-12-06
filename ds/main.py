@@ -36,8 +36,6 @@ for msg in consumer:
     input_data.add_source(uri_source=video_url, cam_id=cam_id, extra_information=extra_information)
 
     pipeline = DSL_Pipeline(input_srcs=input_data.get_src())
-
     if input_data.get_size() == 4:
         pipeline.run_pipeline(input_data)
-
-    input_data = InputData()
+        input_data = InputData()

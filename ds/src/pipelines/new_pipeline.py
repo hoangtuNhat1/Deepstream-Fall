@@ -27,7 +27,8 @@ OSD_DISPLAY_TEXT = 1
 fps_log_interval = 10000
 
 
-CONFIG_INFER = '/workspace/FallDetection/config_infer_primary_yolo11.txt'
+# CONFIG_INFER = '/workspace/FallDetection/config_infer_primary_yolo11.txt'
+CONFIG_INFER = '/workspace/FallDetection/config_infer_primary_yolo11_triton.txt'
 STREAMMUX_WIDTH = 640
 STREAMMUX_HEIGHT = 640
 GPU_ID = 0
@@ -81,7 +82,6 @@ def decodebin_child_added(child_proxy, Object, name, user_data):
         if source_element.find_property('drop-on-latency') is not None:
             Object.set_property("drop-on-latency", True)
 
-# --- Class DSL_Pipeline đã được chỉnh sửa ---
 class DSL_Pipeline:
     def __init__(
         self,
@@ -136,7 +136,8 @@ class DSL_Pipeline:
                 raise RuntimeError(f"Unable to create src pad for source {i}")
             srcpad.link(sinkpad)
 
-        self.pgie = Gst.ElementFactory.make('nvinfer', 'pgie')
+        # self.pgie = Gst.ElementFactory.make('nvinfer', 'pgie')
+        self.pgie = Gst.ElementFactory.make('nvinferserver', 'pgie')
         if not self.pgie:
             raise RuntimeError("Unable to create nvinfer")
         self.pipeline.add(self.pgie)
@@ -176,7 +177,7 @@ class DSL_Pipeline:
 
         self.streammux.set_property('nvbuf-memory-type', 0)
         self.streammux.set_property('gpu_id', GPU_ID)
-        self.pgie.set_property('gpu_id', GPU_ID)
+        # self.pgie.set_property('gpu_id', GPU_ID)
 
         tiler_rows = int(math.sqrt(number_sources))
         tiler_columns = int(math.ceil((1.0 * number_sources) / tiler_rows))
