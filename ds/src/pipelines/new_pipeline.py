@@ -197,7 +197,6 @@ class DSL_Pipeline:
         self.osd.link(self.sink)
 
     def run_pipeline(self, inputs: InputData):
-        print("------------------")
         global cam_ids, cam_sources, extra_informations, extra_informations_compact
         cam_sources = inputs.get_src()
         cam_ids = inputs.get_cams_id()
